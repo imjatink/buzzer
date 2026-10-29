@@ -1,0 +1,91 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Buzzer</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--bg:#f4f5fb;--card:#fff;--tx:#1c1f2e;--mu:#6b7186;--pri:#5b3df5;--ok:#16a34a;--no:#dc2626;--bd:#e3e5f0}
+@media(prefers-color-scheme:dark){:root{--bg:#12131c;--card:#1c1e2c;--tx:#eef0fa;--mu:#9a9fb8;--bd:#2c2f44}}
+*{box-sizing:border-box}body{margin:0;font:17px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+.wrap{max-width:720px;margin:auto;padding:16px}[hidden]{display:none!important}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:18px;margin:0 0 14px}
+h1,h2{margin:0 0 8px}.muted{color:var(--mu);font-size:14px}
+.logo{font-weight:800;font-size:26px;color:var(--pri)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.hud{display:flex;gap:8px;align-items:center;font-weight:700}.pill{background:var(--card);border:1px solid var(--bd);border-radius:99px;padding:4px 12px}
+#live{width:10px;height:10px;border-radius:50%;background:#aaa;display:inline-block}#live.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.tabs{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto}
+.tab,.btn{border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:12px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
+.tab.on,.btn.pri{background:var(--pri);color:#fff;border-color:var(--pri)}
+.opt{display:block;width:100%;text-align:left;margin:8px 0;padding:14px;border-radius:12px;border:2px solid var(--bd);background:var(--card);color:var(--tx);font:inherit;cursor:pointer}
+.opt:hover:not(:disabled){border-color:var(--pri)}.opt.good{border-color:var(--ok);background:rgba(22,163,74,.15)}.opt.bad{border-color:var(--no);background:rgba(220,38,38,.15)}
+.bar{height:10px;background:var(--bd);border-radius:9px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--pri)}
+.tag{background:var(--pri);color:#fff;border-radius:8px;padding:2px 10px;font-size:13px}
+.row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--bd)}.row:last-child{border:0}
+.row.me{background:rgba(91,61,245,.1);border-radius:10px;padding:10px}.grow{flex:1}.av{font-size:28px}.rank{width:30px;font-weight:800;text-align:center}
+.week{display:flex;gap:6px}.day{flex:1;text-align:center;border-radius:10px;padding:6px 0;background:var(--bd);font-size:13px}.day.on{background:var(--pri);color:#fff}
+.alert{border-left:5px solid var(--no)}.reminder{border-left:5px solid #f59e0b}
+input,select,textarea{width:100%;padding:10px;margin:4px 0 10px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font:inherit}
+table{width:100%;border-collapse:collapse;font-size:15px}td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--bd)}
+.profiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}.pcard{cursor:pointer;text-align:center}.pcard:hover{border-color:var(--pri)}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--pri);color:#fff;padding:12px 18px;border-radius:12px;font-weight:600;max-width:90%}
+</style></head><body><div class="wrap">
+<section id="login"><div class="top"><span class="logo">⚡ Buzzer</span></div>
+<div class="card"><h2>Who's learning today?</h2><p class="muted">Demo sign-in: pick a profile. Admins can post alerts and manage results.</p><div class="profiles" id="plist">Loading…</div></div></section>
+<section id="app" hidden>
+<div class="top"><span class="logo">⚡ Buzzer</span><div class="hud"><span id="live" title="Realtime"></span><span class="pill" id="hs"></span><span class="pill" id="hp"></span><button class="tab" onclick="location.reload()">Exit</button></div></div>
+<div class="tabs" id="tabs"></div><div id="view"></div></section></div><div id="toast" hidden></div>
+<script>
+// ====== PASTE YOUR SUPABASE VALUES HERE (Supabase > Project Settings > API) ======
+const SUPABASE_URL="https://zaljvkuapjvyldgqxcbo.supabase.co";
+const SUPABASE_KEY="sb_publishable_c23eYj6vkOJotmmKWMZZ9w_2TdTeT1V";
+// ==================================================================================
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let sb,me,qs=[],done=new Set(),board=[],alerts=[],week=[],tab='learn';
+const ago=t=>{const m=Math.round((Date.now()-new Date(t))/6e4);return m<1?'just now':m<60?m+'m ago':m<1440?Math.round(m/60)+'h ago':Math.round(m/1440)+'d ago'};
+function toast(t){const e=$('#toast');e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,4000)}
+async function boot(){
+ if(!SUPABASE_URL||!SUPABASE_KEY){$('#plist').innerHTML='<b>Setup needed:</b> open index.html and paste your Supabase URL and anon key at the top of the script.';return}
+ sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+ const{data,error}=await sb.from('profiles').select('*').order('role').order('name');
+ if(error||!data.length){$('#plist').textContent='Could not load profiles. Did you run supabase-setup.sql?';return}
+ $('#plist').innerHTML=data.map(p=>`<div class="card pcard" onclick="login('${p.id}')"><div class="av">${p.avatar}</div><b>${esc(p.name)}</b><div class="muted">${p.role==='admin'?'🛡️ Admin':'Learner'}</div></div>`).join('')}
+async function login(id){
+ const{data,error}=await sb.rpc('record_login',{p:id});if(error)return toast(error.message);me=data;
+ $('#login').hidden=true;$('#app').hidden=false;
+ const{data:q}=await sb.from('questions').select('*').order('id');qs=q||[];
+ const{data:r}=await sb.from('results').select('question_id').eq('profile_id',me.id);done=new Set((r||[]).map(x=>x.question_id));
+ await Promise.all([loadBoard(),loadAlerts(),loadWeek()]);hud();tabsUI();show('learn');
+ sb.channel('buzzer')
+  .on('postgres_changes',{event:'*',schema:'public',table:'profiles'},loadBoard)
+  .on('postgres_changes',{event:'*',schema:'public',table:'results'},loadBoard)
+  .on('postgres_changes',{event:'INSERT',schema:'public',table:'alerts'},p=>{toast('🔔 '+p.new.title);loadAlerts()})
+  .on('postgres_changes',{event:'DELETE',schema:'public',table:'alerts'},loadAlerts)
+  .subscribe(s=>$('#live').className=s==='SUBSCRIBED'?'on':'')}
+async function loadBoard(){const{data}=await sb.from('profiles').select('*').order('points',{ascending:false}).order('streak',{ascending:false});board=data||[];
+ const m=board.find(p=>p.id===me.id);if(m){me=m;hud()}if(tab==='board'||tab==='admin')show(tab)}
+async function loadAlerts(){const{data}=await sb.from('alerts').select('*').order('created_at',{ascending:false});alerts=data||[];if(tab==='alerts')show(tab);tabsUI()}
+async function loadWeek(){const{data}=await sb.from('logins').select('day').eq('profile_id',me.id);const s=new Set((data||[]).map(x=>x.day));
+ week=[...Array(7)].map((_,i)=>{const d=new Date(Date.now()-(6-i)*864e5);const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString([],{weekday:'narrow'}),on:s.has(k)||(i===6)}})}
+function hud(){$('#hs').textContent='🔥 '+me.streak;$('#hp').textContent='⭐ '+me.points}
+function tabsUI(){const t=[['learn','Today'],['board','Leaderboard'],['alerts','Alerts'+(alerts.length?' ('+alerts.length+')':'')]];if(me.role==='admin')t.push(['admin','Admin']);
+ $('#tabs').innerHTML=t.map(([k,l])=>`<button class="tab ${k===tab?'on':''}" onclick="show('${k}')">${l}</button>`).join('')}
+function show(t){tab=t;tabsUI();$('#view').innerHTML={learn,board:lb,alerts:al,admin}[t]()}
+function learn(){const q=qs.find(x=>!done.has(x.id)),n=qs.length-done.size;
+ let h=`<div class="card"><b>Your streak: 🔥 ${me.streak} day${me.streak==1?'':'s'}</b> <span class="muted">(best ${me.best_streak})</span><div class="week" style="margin-top:10px">${week.map(d=>`<div class="day ${d.on?'on':''}">${d.l}<br>${d.on?'✓':'·'}</div>`).join('')}</div></div>
+ <div class="card"><div class="muted">${done.size} of ${qs.length} answered</div><div class="bar"><i style="width:${qs.length?done.size/qs.length*100:0}%"></i></div></div>`;
+ if(!q)return h+'<div class="card"><h2>🎉 All done!</h2><p>You finished every question. Check the leaderboard, and come back tomorrow to keep your streak.</p></div>';
+ return h+`<div class="card"><span class="tag">${esc(q.category)}</span> <span class="muted">+${q.points} pts</span><h2 style="margin-top:10px">${esc(q.question)}</h2><div id="opts">${q.options.map((o,i)=>`<button class="opt" onclick="answer(${q.id},${i})">${esc(o)}</button>`).join('')}</div><div id="fb"></div></div>`}
+async function answer(id,i){const q=qs.find(x=>x.id===id),ok=i===q.answer;
+ document.querySelectorAll('.opt').forEach((b,j)=>{b.disabled=true;if(j===q.answer)b.classList.add('good');else if(j===i)b.classList.add('bad')});
+ const{error}=await sb.from('results').insert({profile_id:me.id,question_id:id,correct:ok,points:ok?q.points:0});if(error)return toast(error.message);
+ done.add(id);$('#fb').innerHTML=`<p><b>${ok?'✅ Correct! +'+q.points+' points':'❌ Not quite. The right answer is highlighted.'}</b></p><button class="btn pri" onclick="show('learn')">${qs.length-done.size?'Next question →':'Finish'}</button>`}
+function lb(){return`<div class="card"><h2>🏆 Live Leaderboard</h2><p class="muted">Updates instantly as people answer.</p>${board.map((p,i)=>`<div class="row ${p.id===me.id?'me':''}"><span class="rank">${['🥇','🥈','🥉'][i]||i+1}</span><span class="av">${p.avatar}</span><span class="grow"><b>${esc(p.name)}</b><br><span class="muted">🔥 ${p.streak}-day streak</span></span><b>${p.points} pts</b></div>`).join('')}</div>`}
+function al(){const n=qs.length-done.size;
+ return(n?`<div class="card reminder"><b>⏰ Reminder</b><br>You have ${n} question${n==1?'':'s'} waiting today. Keep your 🔥 ${me.streak}-day streak going!</div>`:'')+
+ (alerts.map(a=>`<div class="card ${a.kind}"><span class="tag">${a.kind==='alert'?'🚨 Alert':'⏰ Reminder'}</span> <span class="muted">${ago(a.created_at)}</span><h2 style="margin-top:8px">${esc(a.title)}</h2>${esc(a.body)}</div>`).join('')||'<div class="card muted">No alerts yet.</div>')}
+function admin(){return`<div class="card"><h2>Post an alert or reminder</h2><select id="ak"><option value="alert">🚨 Alert</option><option value="reminder">⏰ Reminder</option></select><input id="at" placeholder="Title"><textarea id="ab" rows="2" placeholder="Message"></textarea><button class="btn pri" onclick="post()">Send to everyone</button></div>
+<div class="card"><h2>Team</h2><table><tr><th>Name</th><th>Role</th><th>Pts</th><th>🔥</th><th>Last login</th></tr>${board.map(p=>`<tr><td>${p.avatar} ${esc(p.name)}</td><td>${p.role}</td><td>${p.points}</td><td>${p.streak}</td><td>${p.last_login||'-'}</td></tr>`).join('')}</table></div>
+<div class="card"><h2>Manage</h2>${alerts.map(a=>`<div class="row"><span class="grow">${esc(a.title)}</span><button class="btn" onclick="delA(${a.id})">Delete</button></div>`).join('')}<p><button class="btn" onclick="resetR()">Reset all results &amp; points</button></p></div>`}
+async function post(){const t=$('#at').value.trim();if(!t)return toast('Add a title');await sb.from('alerts').insert({kind:$('#ak').value,title:t,body:$('#ab').value});show('admin')}
+async function delA(id){await sb.from('alerts').delete().eq('id',id)}
+async function resetR(){if(!confirm('Reset everyone\'s results and points?'))return;await sb.rpc('reset_results');done=new Set();toast('Results reset')}
+boot();
+</script></body></html>
